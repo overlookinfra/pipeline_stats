@@ -1,0 +1,79 @@
+require 'jaeger/client'
+require 'yaml'
+
+results = YAML.load(File.read(ARGV[0] || 'results.yaml'))
+
+# {
+#   :name => 'pipeline-name',
+#   :start =>
+#   :stop =>
+#   :total =>
+#   :results => {
+#     :name => 'job', :number => N, :metrics => {
+#       :start => ..
+#       :stop => ..
+#       :executing => ..
+#       :blocked => ..
+#       :waiting => ..
+#       :buildable =>
+#       :queuing =>
+#       :total =>
+#   },
+# ]
+
+tracing_reporter = Jaeger::Reporters::RemoteReporter.new(
+  flush_interval: 10,
+  sender: Jaeger::UdpSender.new(
+    host: "localhost",
+    port: 6831,
+    logger: Logger.new($stdout),
+    encoder: Jaeger::Encoders::ThriftEncoder.new(
+      service_name: "puppet-agent"
+    )
+  )
+)
+
+OpenTracing.global_tracer = Jaeger::Client.build(
+  host: "localhost",
+  port: 6831,
+  service_name: "puppet-agent",
+  reporter: tracing_reporter
+)
+
+last_span = nil
+
+start = Time.at(results[:start] / 1000.0)
+root_scope = OpenTracing.start_active_span("pipeline-#{results[:name]}", start_time: start)
+
+results[:results].each do |job_result|
+  if job_result[:parent].nil?
+    job_start = Time.at(job_result[:metrics][:start] / 1000.0)
+    job_scope = OpenTracing.start_active_span("job-#{job_result[:name]}", start_time: job_start, child_of: root_scope.span)
+    last_span = job_scope.span
+    job_stop =  Time.at(job_result[:metrics][:stop] / 1000.0)
+    job_scope.span.finish(end_time: job_stop)
+  else
+    job_start = Time.at(job_result[:metrics][:start] / 1000.0)
+    job_scope = OpenTracing.start_active_span("run-#{job_result[:name]}", start_time: job_start, child_of: last_span)
+
+    queuing_start = job_start
+    queuing_stop = job_start + (job_result[:metrics][:queuing] / 1000.0)
+    queuing_scope = OpenTracing.start_active_span("queuing-#{job_result[:name]}", start_time: queuing_start, child_of: job_scope.span)
+    queuing_scope.span.finish(end_time: queuing_stop)
+
+    executing_start = queuing_stop
+    executing_stop = executing_start + (job_result[:metrics][:executing] / 1000.0)
+    executing_scope = OpenTracing.start_active_span("exec-#{job_result[:name]}", start_time: executing_start, child_of: job_scope.span)
+    executing_scope.span.finish(end_time: executing_stop)
+
+    job_stop =  Time.at(job_result[:metrics][:stop] / 1000.0)
+    job_scope.span.finish(end_time: job_stop)
+  end
+
+  tracing_reporter.flush
+end
+
+stop = Time.at(results[:stop] / 1000.0)
+root_scope.span.finish(end_time: stop)
+
+tracing_reporter.flush
