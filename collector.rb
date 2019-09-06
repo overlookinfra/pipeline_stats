@@ -61,7 +61,7 @@ def find_prior_build(project, build_details, number)
     # end
 end
 
-def build_metrics(name, number, build_details, parent:)
+def build_metrics(name, number, build_details, parent:, operation_name:)
   metrics = {}
 
   metrics = {}
@@ -103,39 +103,58 @@ def build_metrics(name, number, build_details, parent:)
 
   times = [metrics[:queuing], metrics[:executing], metrics[:total]]
   times.map! { |tm| to_human(tm) }
-  # name can contain '%'
+  # windows japanese has '%' in the name
   puts "Queried #{name}/#{number}: " + ("queued=%s, building=%s, total=%s" % times)
 
-  { name: name, number: number, metrics: metrics, parent: parent }
+  { name: operation_name, number: number, metrics: metrics, parent: parent }
 end
 
-def collect_metrics(client, name, number, parent:)
+def collect_metrics(client, name, number, parent:, operation_name:)
   results = []
-
+  sha = '<unknown>'
   loop do
     # get metrics for a build
     build_details = client.job.get_build_details(name, number)
-    if build_details
-      results << build_metrics(name, number, build_details, parent: parent)
-    else
-      raise "Build #{name}/#{number} not found"
-    end
 
+    raise "Build #{name}/#{number} not found" unless build_details
+
+    # add children first, since we reverse later
     if build_details['_class'] == "hudson.matrix.MatrixBuild"
       build_details['runs'].each do |run|
         if md = run["url"].match(/.*\/(.*)\/(.*)\/(\d+)/)
           run_name = md.captures[0]
           run_axes = md.captures[1]
           run_number = md.captures[2]
-#          puts "Collecting #{run_name}/#{run_axes}/#{run_number}"
-          results.concat(collect_metrics(client, URI.unescape("#{run_name}/#{run_axes}"), run_number, parent: name))
+          #          puts "Collecting #{run_name}/#{run_axes}/#{run_number}"
+
+          # windows japanese has '=' in the axes name
+          axes = Hash[run_axes.split(',').map { |pair| pair.split('=', 2) }]
+          matrix_operation_name = axes.values.join('-')
+          _, build_results = collect_metrics(client, URI.unescape("#{run_name}/#{run_axes}"), run_number, parent: name, operation_name: matrix_operation_name)
+          results.concat(build_results)
         end
       end
     end
 
+    this_operation_name = if operation_name
+                            operation_name
+                          else
+                            if md = name.match(/platform_puppet-agent_puppet-agent-(.*)_daily-.*/)
+                              md[1]
+                            else
+                              'puppet-agent-wtf'
+                            end
+                          end
+
+    results << build_metrics(name, number, build_details, parent: parent, operation_name: this_operation_name)
+
     # The pipeline init job doesn't have an upstream project
     upstream_projects = client.job.get_upstream_projects(name)
-    break if upstream_projects.nil? || upstream_projects.empty?
+    if upstream_projects.nil? || upstream_projects.empty?
+      action = build_details['actions'].find {|act| act['_class'] == "hudson.plugins.git.util.BuildData" }
+      sha = action['lastBuiltRevision']['SHA1'] if action
+      break
+    end
 
     # try to find the build for one of our upstream projects
     project = client.job.list_details(name)
@@ -162,7 +181,8 @@ def collect_metrics(client, name, number, parent:)
     end
   end
 
-  results
+  # Reverse results
+  [sha, results.reverse!]
 end
 
 def to_human(tm)
@@ -182,10 +202,8 @@ def to_human(tm)
   end
 end
 
-#pipelines = client.job.list('^platform_puppet-agent_puppet-agent-suite-init_daily-(master|.*x)')
-
-#pipeline = 'platform_puppet-agent_puppet-agent-vanagon-mergeup_daily-5.5.x'
-pipeline = 'platform_puppet-agent_puppet-agent-vanagon-mergeup_daily-master'
+branch = 'master'
+pipeline = "platform_puppet-agent_puppet-agent-promote-to-pe_daily-#{branch}"
 pipelines = client.job.list("^#{Regexp.escape(pipeline)}")
 pipelines.each do |name|
   total = 0
@@ -198,17 +216,15 @@ pipelines.each do |name|
     number = build["number"]
   end
 
-  # Import reverse metrics
-  build_results = collect_metrics(client, name, number, parent: nil).reverse
+  sha, build_results = collect_metrics(client, name, number, parent: nil, operation_name: nil)
   build_results.each do |build_result|
     total += build_result[:metrics][:total]
   end
 
-  puts "Pipeline #{name} took #{to_human(total)}"
+  pipeline_name = "puppet-agent-#{branch}"
+  puts "Pipeline for #{pipeline_name} with #{sha} took #{to_human(total)}"
   puts ""
 
-  results = { name: pipeline, start: build_results.first[:metrics][:start], stop: build_results.last[:metrics][:stop], total: total, results: build_results }
-  File.write("#{pipeline}.yaml", YAML.dump(results))
+  results = { name: pipeline_name, sha: sha, start: build_results.first[:metrics][:start], stop: build_results.last[:metrics][:stop], total: total, results: build_results }
+  File.write("#{pipeline_name}-#{sha}.yaml", YAML.dump(results))
 end
-
-
