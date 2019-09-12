@@ -202,7 +202,7 @@ def to_human(tm)
   end
 end
 
-branch = 'master'
+branch = ENV['BRANCH'] || 'master'
 pipeline = "platform_puppet-agent_puppet-agent-promote-to-pe_daily-#{branch}"
 pipelines = client.job.list("^#{Regexp.escape(pipeline)}")
 pipelines.each do |name|
