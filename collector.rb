@@ -76,7 +76,7 @@ def build_metrics(name, number, build_details, parent:, operation_name:)
   #
   # |--------------------- total --------------------------|
   # |-------------queuing-----------------|---executing----|
-  # |--blocked--|--waiting--|--buildable--|
+  # |--waiting--|--blocked--|--buildable--|
 
   if action
     # See https://github.com/jenkinsci/metrics-plugin/blob/master/src/main/java/jenkins/metrics/impl/TimeInQueueAction.java
