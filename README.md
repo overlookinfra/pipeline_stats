@@ -12,7 +12,11 @@ $ docker run -p 6831:6831/udp -p 6832:6832/udp -p 16686:16686 jaegertracing/all-
 2. Send traces to jaeger:
 
 ```bash
-for file in traces/puppet-agent-*.yaml; do echo $file; ruby tracer.rb $file; done
+for file in traces/puppet-agent-*.yaml
+do
+    echo $file
+    bundle exec tracer $file
+done
 ```
 
 3. Browse to `http://localhost:16686`
@@ -22,13 +26,13 @@ for file in traces/puppet-agent-*.yaml; do echo $file; ruby tracer.rb $file; don
 To collect traces from the last run of a puppet-agent pipeline:
 
 ```
-$ BRANCH=master ruby collector.rb
+$ BRANCH=master bundle exec collector
 ```
 
 Or specify a specific build number of the `Promote to PE` job:
 
 ```
-$ BUILD_NUMBER=274 BRANCH=master ruby collector.rb
+$ BUILD_NUMBER=274 BRANCH=master bundle exec collector
 ```
 
 ### Results
