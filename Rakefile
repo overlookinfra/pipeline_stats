@@ -8,3 +8,12 @@ Rake::TestTask.new(:test) do |t|
 end
 
 task :default => :test
+
+desc "Publish traces"
+task :publish do
+  traces = FileList['traces/puppet-agent-*.yaml']
+  traces.each do |trace|
+    puts "Publishing #{trace}"
+    %x(bundle exec tracer #{trace})
+  end
+end

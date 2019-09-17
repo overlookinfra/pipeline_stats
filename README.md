@@ -12,11 +12,8 @@ $ docker run -p 6831:6831/udp -p 6832:6832/udp -p 16686:16686 jaegertracing/all-
 2. Send traces to jaeger:
 
 ```bash
-for file in traces/puppet-agent-*.yaml
-do
-    echo $file
-    bundle exec tracer $file
-done
+$ bundle install
+$ bundle exec rake publish
 ```
 
 3. Browse to `http://localhost:16686`
