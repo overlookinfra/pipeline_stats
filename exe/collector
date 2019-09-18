@@ -206,11 +206,12 @@ end
 
 branch = ENV['BRANCH'] || 'master'
 pipeline = "platform_puppet-agent_puppet-agent-promote-to-pe_daily-#{branch}"
-pipelines = client.job.list("^#{Regexp.escape(pipeline)}")
+regex = /^#{Regexp.escape(pipeline)}/
+pipelines = client.job.list_all.select { |job| job =~ regex }
 pipelines.each do |name|
   total = 0
 
-  details = client.job.list_details(name)
+  details = client.api_get_request("/job/#{URI.escape(name.encode(Encoding::UTF_8))}", "tree=lastSuccessfulBuild[number]")
   number = ENV['BUILD_NUMBER']
   unless number
     build = details["lastSuccessfulBuild"]
