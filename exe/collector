@@ -8,10 +8,10 @@ config = { log_level: Logger::WARN }
 # config = { log_level: Logger::DEBUG }
 config_filepath = "~/.jenkins_api_client/login.yml"
 if ENV['PIPELINE_STATS_LOGIN_FILE']
-  config_filename = ENV['PIPELINE_STATS_LOGIN_FILE']
+  config_filepath = ENV['PIPELINE_STATS_LOGIN_FILE']
 end
 puts "login.yml path: #{config_filepath}"
-config.merge!(YAML.load_file(File.expand_path(config_filename, __FILE__)))
+config.merge!(YAML.load_file(File.expand_path(config_filepath, __FILE__)))
 client = JenkinsApi::Client.new(config)
 
 def find_upstream_build(project, build_details)
@@ -225,7 +225,7 @@ pipelines.each do |name|
   details["builds"].each do |build_info|
     build_number = build_info["number"]
     puts "BUILD #{build_number}:"
-    filename_array = Dir.glob(File.join("traces", branch, "#{build_number}-*.yaml"))
+    filename_array = Dir.glob(File.join("build_traces", "puppet-agent-#{branch}", "#{build_number}-*.yaml"))
     unless filename_array.empty?
       puts "- Skipping. Cause:"
       puts "  File for build #{build_number} already exists: #{filename_array[0]}"
@@ -269,7 +269,7 @@ pipelines.each do |name|
     puts ""
 
     results = { name: pipeline_name, sha: sha, start: build_results.first[:metrics][:start], stop: build_results.last[:metrics][:stop], total: total, results: build_results }
-    trace_folder_path = File.join(Dir.pwd, "traces", branch)
+    trace_folder_path = File.join(Dir.pwd, "build_traces", pipeline_name)
     FileUtils.mkdir_p(trace_folder_path)
     trace_file_path = File.join(trace_folder_path, "#{build_number}-#{sha}.yaml")
     File.write(trace_file_path, YAML.dump(results))
