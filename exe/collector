@@ -6,7 +6,12 @@ require 'json'
 
 config = { log_level: Logger::WARN }
 # config = { log_level: Logger::DEBUG }
-config.merge!(YAML.load_file(File.expand_path("~/.jenkins_api_client/login.yml", __FILE__)))
+config_filepath = "~/.jenkins_api_client/login.yml"
+if ENV['PIPELINE_STATS_LOGIN_FILE']
+  config_filename = ENV['PIPELINE_STATS_LOGIN_FILE']
+end
+puts "login.yml path: #{config_filepath}"
+config.merge!(YAML.load_file(File.expand_path(config_filename, __FILE__)))
 client = JenkinsApi::Client.new(config)
 
 def find_upstream_build(project, build_details)
