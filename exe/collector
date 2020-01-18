@@ -236,6 +236,7 @@ pipelines.each do |name|
     unless build_success
       puts "- Skipping. Cause:"
       puts "  Build wasn't a success"
+      next
     end
 
     build_numbers_to_collect << build_number
