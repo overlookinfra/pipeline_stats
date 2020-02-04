@@ -121,9 +121,12 @@ def collect_metrics(client, name, number, parent:, operation_name:)
   results = []
   sha = '<unknown>'
   loop do
-    # get metrics for a build
-    build_details = client.job.get_build_details(name, number)
-
+    begin
+      # get metrics for a build
+      build_details = client.job.get_build_details(name, number)
+    rescue JenkinsApi::Exceptions::NotFound => err
+      raise "Build #{name}/#{number} not found"
+    end
     raise "Build #{name}/#{number} not found" unless build_details
 
     # add children first, since we reverse later
@@ -255,12 +258,24 @@ pipelines.each do |name|
     #   number = build["number"]
     # end
 
-    sha, build_results = collect_metrics(client, name, build_number, parent: nil, operation_name: nil)
-    # sha = "false"
-    # build_results = [
-    #   {:metrics => {:total => 4}},
-    #   {:metrics => {:total => 4}}
-    # ]
+    begin
+      sha, build_results = collect_metrics(client, name, build_number, parent: nil, operation_name: nil)
+      # sha = "false"
+      # build_results = [
+      #   {:metrics => {:total => 4}},
+      #   {:metrics => {:total => 4}}
+      # ]
+    rescue StandardError => err
+      puts "    Error caught for build #{build_number} (name: #{name})." # Stacktrace for debugging:"
+      puts "    Error output: #{err}"
+      # puts "Error caught for build #{build_number} (name: #{name}). Stacktrace for debugging:"
+      # err.backtrace.each do |line|
+      #   puts "    #{line}"
+      # end
+      puts "    Skipping to next build."
+      next
+    end
+
     build_results.each do |build_result|
       total += build_result[:metrics][:total]
     end
@@ -269,7 +284,14 @@ pipelines.each do |name|
     puts "Pipeline for #{pipeline_name} with #{sha} took #{to_human(total)}"
     puts ""
 
-    results = { name: pipeline_name, sha: sha, start: build_results.first[:metrics][:start], stop: build_results.last[:metrics][:stop], total: total, results: build_results }
+    results = {
+      name: pipeline_name,
+      sha: sha,
+      start: build_results.first[:metrics][:start],
+      stop: build_results.last[:metrics][:stop],
+      total: total,
+      results: build_results
+    }
     trace_folder_path = File.join(Dir.pwd, "build_traces", pipeline_name)
     FileUtils.mkdir_p(trace_folder_path)
     trace_file_path = File.join(trace_folder_path, "#{build_number}-#{sha}.yaml")
