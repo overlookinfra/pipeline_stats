@@ -181,7 +181,7 @@ def collect_metrics(client, name, number, parent:, operation_name:)
 
       # find previous build for this project
       prior_number = find_prior_build(project, build_details, number)
-      return results unless prior_number
+      return [sha, results.reverse!] unless prior_number
 
       # REMIND: need to make sure prior build was for the same SHA!
 
