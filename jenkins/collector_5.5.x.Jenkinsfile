@@ -31,8 +31,8 @@ pipeline {
     //
     // ref: https://jenkins.io/doc/book/pipeline/syntax/#cron-syntax
     //
-    // this cron statement specifies a run between 12:00 & 2:59am Tuesdays & Saturdays
-    cron('H H(0-2) * * 2,6')
+    // this cron statement specifies a run between 6:00 & 8:59am Tuesdays & Saturdays
+    cron('H H(6-8) * * 2,6')
   }
 
   environment {
@@ -40,7 +40,7 @@ pipeline {
     RUBY_VERSION='2.5.1'
     PIPELINE_BRANCH='dt_job_01'
     GIT_CHANGED_FILES='0' // will be overriden
-    BRANCH='master'
+    BRANCH='5.5.x'
   }
 
   // parameters {
