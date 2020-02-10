@@ -29,7 +29,7 @@ pipeline {
     // because if one job commits traces while another is running, the commit & push
     // step won't work since we're not at the HEAD of the branch
     // ref: https://jenkins.io/doc/book/pipeline/syntax/#cron-syntax
-    cron('H H(0-2) * * 2/6')
+    cron('H H(0-2) * * 2,6')
   }
 
   environment {
