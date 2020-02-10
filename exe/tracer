@@ -91,7 +91,6 @@ end
 
 def trace_paths_from_dir(dir_path)
   build_trace_files = Dir.glob(File.join(dir_path, "*.yaml"))
-  # $logger.debug("build trace files: #{build_trace_files.pretty_inspect}"
   trace_files_to_send = build_trace_files.select { |file_path|
     file_name = File.basename(file_path)
     dir_path = File.dirname(file_path)

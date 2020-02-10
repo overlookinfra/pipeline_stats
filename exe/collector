@@ -222,7 +222,6 @@ puts "Pipelines: #{pipelines}"
 pipelines.each do |name|
   total = 0
 
-  # details = client.api_get_request("/job/#{URI.escape(name.encode(Encoding::UTF_8))}", "tree=lastSuccessfulBuild[number]")
   details = client.api_get_request("/job/#{URI.escape(name.encode(Encoding::UTF_8))}", "tree=builds[number,url,result]")
   build_numbers_to_collect = []
   details["builds"].each do |build_info|
@@ -245,19 +244,11 @@ pipelines.each do |name|
     build_numbers_to_collect << build_number
     puts "- #{build_number} added to build numbers list"
   end
-  # details = {}
   require 'pp'
   puts "Details: #{details.pretty_inspect}"
   puts "Build Numbers: #{build_numbers_to_collect}"
   build_numbers_to_collect.each do |build_number|
     puts "Collecting data for build #{build_number}..."
-    # number = ENV['BUILD_NUMBER']
-    # unless number
-    #   build = details["lastSuccessfulBuild"]
-    #   raise "Job #{name} has never succeeded" unless build
-    #   number = build["number"]
-    # end
-
     begin
       sha, build_results = collect_metrics(client, name, build_number, parent: nil, operation_name: nil)
       # sha = "false"
@@ -268,10 +259,6 @@ pipelines.each do |name|
     rescue StandardError => err
       puts "    Error caught for build #{build_number} (name: #{name})." # Stacktrace for debugging:"
       puts "    Error output: #{err}"
-      # puts "Error caught for build #{build_number} (name: #{name}). Stacktrace for debugging:"
-      # err.backtrace.each do |line|
-      #   puts "    #{line}"
-      # end
       puts "    Skipping to next build."
       next
     end
