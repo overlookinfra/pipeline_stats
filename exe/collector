@@ -5,7 +5,13 @@ require 'pp'
 require 'json'
 
 config = { log_level: Logger::WARN }
-config.merge!(YAML.load_file(File.expand_path("~/.jenkins_api_client/login.yml", __FILE__)))
+# config = { log_level: Logger::DEBUG }
+config_filepath = "~/.jenkins_api_client/login.yml"
+if ENV['PIPELINE_STATS_LOGIN_FILE']
+  config_filepath = ENV['PIPELINE_STATS_LOGIN_FILE']
+end
+puts "login.yml path: #{config_filepath}"
+config.merge!(YAML.load_file(File.expand_path(config_filepath, __FILE__)))
 client = JenkinsApi::Client.new(config)
 
 def find_upstream_build(project, build_details)
@@ -115,9 +121,12 @@ def collect_metrics(client, name, number, parent:, operation_name:)
   results = []
   sha = '<unknown>'
   loop do
-    # get metrics for a build
-    build_details = client.job.get_build_details(name, number)
-
+    begin
+      # get metrics for a build
+      build_details = client.job.get_build_details(name, number)
+    rescue JenkinsApi::Exceptions::NotFound => err
+      raise "Build #{name}/#{number} not found"
+    end
     raise "Build #{name}/#{number} not found" unless build_details
 
     # add children first, since we reverse later
@@ -172,7 +181,7 @@ def collect_metrics(client, name, number, parent:, operation_name:)
 
       # find previous build for this project
       prior_number = find_prior_build(project, build_details, number)
-      return results unless prior_number
+      return [sha, results.reverse!] unless prior_number
 
       # REMIND: need to make sure prior build was for the same SHA!
 
@@ -205,29 +214,75 @@ def to_human(tm)
 end
 
 branch = ENV['BRANCH'] || 'master'
+puts "For branch #{branch}"
 pipeline = "platform_puppet-agent_puppet-agent-promote-to-pe_daily-#{branch}"
 regex = /^#{Regexp.escape(pipeline)}/
 pipelines = client.job.list_all.select { |job| job =~ regex }
+puts "Pipelines: #{pipelines}"
 pipelines.each do |name|
   total = 0
 
-  details = client.api_get_request("/job/#{URI.escape(name.encode(Encoding::UTF_8))}", "tree=lastSuccessfulBuild[number]")
-  number = ENV['BUILD_NUMBER']
-  unless number
-    build = details["lastSuccessfulBuild"]
-    raise "Job #{name} has never succeeded" unless build
-    number = build["number"]
+  details = client.api_get_request("/job/#{URI.escape(name.encode(Encoding::UTF_8))}", "tree=builds[number,url,result]")
+  build_numbers_to_collect = []
+  details["builds"].each do |build_info|
+    build_number = build_info["number"]
+    puts "BUILD #{build_number}:"
+    filename_array = Dir.glob(File.join("build_traces", "puppet-agent-#{branch}", "#{build_number}-*.yaml"))
+    unless filename_array.empty?
+      puts "- Skipping. Cause:"
+      puts "  File for build #{build_number} already exists: #{filename_array[0]}"
+      next
+    end
+
+    build_success = build_info["result"] == "SUCCESS"
+    unless build_success
+      puts "- Skipping. Cause:"
+      puts "  Build wasn't a success"
+      next
+    end
+
+    build_numbers_to_collect << build_number
+    puts "- #{build_number} added to build numbers list"
+  end
+  require 'pp'
+  puts "Details: #{details.pretty_inspect}"
+  puts "Build Numbers: #{build_numbers_to_collect}"
+  build_numbers_to_collect.each do |build_number|
+    puts "Collecting data for build #{build_number}..."
+    begin
+      sha, build_results = collect_metrics(client, name, build_number, parent: nil, operation_name: nil)
+      # sha = "false"
+      # build_results = [
+      #   {:metrics => {:total => 4}},
+      #   {:metrics => {:total => 4}}
+      # ]
+    rescue StandardError => err
+      puts "    Error caught for build #{build_number} (name: #{name})." # Stacktrace for debugging:"
+      puts "    Error output: #{err}"
+      puts "    Skipping to next build."
+      next
+    end
+
+    build_results.each do |build_result|
+      total += build_result[:metrics][:total]
+    end
+
+    pipeline_name = "puppet-agent-#{branch}"
+    puts "Pipeline for #{pipeline_name} with #{sha} took #{to_human(total)}"
+    puts ""
+
+    results = {
+      name: pipeline_name,
+      sha: sha,
+      start: build_results.first[:metrics][:start],
+      stop: build_results.last[:metrics][:stop],
+      total: total,
+      results: build_results
+    }
+    trace_folder_path = File.join(Dir.pwd, "build_traces", pipeline_name)
+    FileUtils.mkdir_p(trace_folder_path)
+    trace_file_path = File.join(trace_folder_path, "#{build_number}-#{sha}.yaml")
+    File.write(trace_file_path, YAML.dump(results))
   end
 
-  sha, build_results = collect_metrics(client, name, number, parent: nil, operation_name: nil)
-  build_results.each do |build_result|
-    total += build_result[:metrics][:total]
-  end
-
-  pipeline_name = "puppet-agent-#{branch}"
-  puts "Pipeline for #{pipeline_name} with #{sha} took #{to_human(total)}"
-  puts ""
-
-  results = { name: pipeline_name, sha: sha, start: build_results.first[:metrics][:start], stop: build_results.last[:metrics][:stop], total: total, results: build_results }
-  File.write("#{pipeline_name}-#{sha}.yaml", YAML.dump(results))
 end

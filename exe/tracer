@@ -3,8 +3,10 @@
 require 'jaeger/client'
 require 'yaml'
 
-results = YAML.load(File.read(ARGV[0] || 'results.yaml'))
+require "pp"
+require "fileutils"
 
+# Trace Data YAML Format
 # {
 #   :name => 'pipeline-name',
 #   :start =>
@@ -23,12 +25,17 @@ results = YAML.load(File.read(ARGV[0] || 'results.yaml'))
 #   },
 # ]
 
-tracing_reporter = Jaeger::Reporters::RemoteReporter.new(
+$logger = Logger.new($stdout)
+# INFO   shows an outline of all actions but not details w/i them
+# DEBUG  shows details of specific actions & how they're built & executed
+$logger.level = Logger::INFO
+
+$tracing_reporter = Jaeger::Reporters::RemoteReporter.new(
   flush_interval: 10,
   sender: Jaeger::UdpSender.new(
     host: "localhost",
     port: 6831,
-    logger: Logger.new($stdout),
+    logger: $logger,
     encoder: Jaeger::Encoders::ThriftEncoder.new(
       service_name: "jenkins"
     )
@@ -39,43 +46,105 @@ OpenTracing.global_tracer = Jaeger::Client.build(
   host: "localhost",
   port: 6831,
   service_name: "jenkins",
-  reporter: tracing_reporter
+  reporter: $tracing_reporter
 )
 
-last_span = nil
+def report_spans_for_result(results)
+  last_span = nil
 
-start = Time.at(results[:start] / 1000.0)
-root_scope = OpenTracing.start_active_span(results[:name], start_time: start)
+  start = Time.at(results[:start] / 1000.0)
+  root_scope = OpenTracing.start_active_span(results[:name], start_time: start)
 
-results[:results].each do |job_result|
-  if job_result[:parent].nil?
-    job_start = Time.at(job_result[:metrics][:start] / 1000.0)
-    job_scope = OpenTracing.start_active_span(job_result[:name], start_time: job_start, child_of: root_scope.span)
-    last_span = job_scope.span
-    job_stop =  Time.at(job_result[:metrics][:stop] / 1000.0)
-    job_scope.span.finish(end_time: job_stop)
-  else
-    job_start = Time.at(job_result[:metrics][:start] / 1000.0)
-    job_scope = OpenTracing.start_active_span(job_result[:name], start_time: job_start, child_of: last_span)
+  results[:results].each do |job_result|
+    if job_result[:parent].nil?
+      job_start = Time.at(job_result[:metrics][:start] / 1000.0)
+      job_scope = OpenTracing.start_active_span(job_result[:name], start_time: job_start, child_of: root_scope.span)
+      last_span = job_scope.span
+      job_stop =  Time.at(job_result[:metrics][:stop] / 1000.0)
+      job_scope.span.finish(end_time: job_stop)
+    else
+      job_start = Time.at(job_result[:metrics][:start] / 1000.0)
+      job_scope = OpenTracing.start_active_span(job_result[:name], start_time: job_start, child_of: last_span)
 
-    queuing_start = job_start
-    queuing_stop = job_start + (job_result[:metrics][:queuing] / 1000.0)
-    queuing_scope = OpenTracing.start_active_span("queued", start_time: queuing_start, child_of: job_scope.span)
-    queuing_scope.span.finish(end_time: queuing_stop)
+      queuing_start = job_start
+      queuing_stop = job_start + (job_result[:metrics][:queuing] / 1000.0)
+      queuing_scope = OpenTracing.start_active_span("queued", start_time: queuing_start, child_of: job_scope.span)
+      queuing_scope.span.finish(end_time: queuing_stop)
 
-    executing_start = queuing_stop
-    executing_stop = executing_start + (job_result[:metrics][:executing] / 1000.0)
-    executing_scope = OpenTracing.start_active_span("exec", start_time: executing_start, child_of: job_scope.span)
-    executing_scope.span.finish(end_time: executing_stop)
+      executing_start = queuing_stop
+      executing_stop = executing_start + (job_result[:metrics][:executing] / 1000.0)
+      executing_scope = OpenTracing.start_active_span("exec", start_time: executing_start, child_of: job_scope.span)
+      executing_scope.span.finish(end_time: executing_stop)
 
-    job_stop =  Time.at(job_result[:metrics][:stop] / 1000.0)
-    job_scope.span.finish(end_time: job_stop)
+      job_stop =  Time.at(job_result[:metrics][:stop] / 1000.0)
+      job_scope.span.finish(end_time: job_stop)
+    end
+
+    $tracing_reporter.flush
   end
 
-  tracing_reporter.flush
+  stop = Time.at(results[:stop] / 1000.0)
+  root_scope.span.finish(end_time: stop)
+
+  $tracing_reporter.flush
 end
 
-stop = Time.at(results[:stop] / 1000.0)
-root_scope.span.finish(end_time: stop)
+def trace_paths_from_dir(dir_path)
+  build_trace_files = Dir.glob(File.join(dir_path, "*.yaml"))
+  trace_files_to_send = build_trace_files.select { |file_path|
+    file_name = File.basename(file_path)
+    dir_path = File.dirname(file_path)
+    $logger.info("")
+    $logger.info("- #{file_path}")
+    $logger.debug("  - file name parts:")
+    build_number, sha, extension = file_name.split(/[-\.]/)
+    $logger.debug("    - #{build_number}")
+    $logger.debug("    - #{sha}")
+    $logger.debug("    - #{extension}")
+    jaeger_file = File.join(dir_path, "#{build_number}.jaeger")
+    $logger.debug("  - jaeger file: #{jaeger_file}, exists? #{File.exist?(jaeger_file)}")
 
-tracing_reporter.flush
+    if sha == "<unknown>"
+      $logger.info("  - sha is unknown, skipping")
+      false
+    elsif File.exist?(jaeger_file)
+      $logger.info("  - jaeger file already exists, skipping")
+      false
+    else
+      $logger.info("  - no reasons to skip, will send traces")
+      true
+    end
+  }
+
+  $logger.debug("file to send:")
+  $logger.debug(trace_files_to_send.pretty_inspect)
+  return trace_files_to_send
+end
+
+def get_trace_paths_from_arg(file_arg)
+  return ["results.yaml"] unless file_arg
+  return trace_paths_from_dir(file_arg) if File.directory?(file_arg)
+
+  return [file_arg]
+end
+
+trace_files = get_trace_paths_from_arg(ARGV[0])
+$logger.info("trace files:")
+$logger.info(trace_files.pretty_inspect)
+
+trace_files.each do |trace_path|
+  $logger.info("- #{trace_path}")
+
+  $logger.info("  - sending trace data")
+  trace_data = YAML.load(File.read(trace_path))
+  report_spans_for_result(trace_data)
+
+  $logger.info("  - writing jaeger file to confirm data sent")
+  dir_path = File.dirname(trace_path)
+  file_name = File.basename(trace_path)
+  build_number, sha, extension = file_name.split(/[-\.]/)
+
+  jaeger_file_path = File.join(dir_path, "#{build_number}.jaeger")
+  FileUtils.touch(jaeger_file_path)
+end
+
