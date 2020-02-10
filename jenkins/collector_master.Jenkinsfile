@@ -24,6 +24,13 @@ boolean gitChangesFound() {
 
 pipeline {
   agent { label 'worker' }
+  triggers {
+    // this timing needs to not overlap with any of the other jobs in this folder
+    // because if one job commits traces while another is running, the commit & push
+    // step won't work since we're not at the HEAD of the branch
+    // ref: https://jenkins.io/doc/book/pipeline/syntax/#cron-syntax
+    cron('H H(0-2) * * 2/6')
+  }
 
   environment {
     GEM_SOURCE='https://artifactory.delivery.puppetlabs.net/artifactory/api/gems/rubygems/'
