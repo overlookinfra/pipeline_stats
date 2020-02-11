@@ -30,19 +30,27 @@ pipeline {
   environment {
     GEM_SOURCE='https://artifactory.delivery.puppetlabs.net/artifactory/api/gems/rubygems/'
     RUBY_VERSION='2.5.1'
-    PIPELINE_BRANCH='dt_job_01'
-    GIT_CHANGED_FILES='0' // will be overriden
     BRANCH='6.4.x'
   }
 
   stages {
     stage('bundle install') {
       steps {
+        // dev mode: to iterate on the job w/o creating commits, I find it better to switch
+        //   the job from an SCM Pipeline to a Pipeline script. When that's the case, you'll
+        //   need to have a manual checkout step in your Jenkinsfile
+        //   TODO needs confirmation (does having a git project on the job mean we don't need this?)
+        // git branch: "dt_job_02",
+        //     url: 'git@github.com:kevpl/pipeline_stats.git'
         sh bundleInstall(env.RUBY_VERSION)
       }
     }
     stage('collect traces') {
       environment {
+        // credentials defined as jenkins_api_client's login.yml file
+        //   on jenkins-pipeline, these are kept here:
+        //   https://cinext-jenkinsmaster-pipeline-prod-1.delivery.puppetlabs.net/credentials/store/system/domain/_/credential/jenkins_api_client-login/
+        //   an example of the config file format is in this repo: /config/login.yml
         PIPELINE_STATS_LOGIN_FILE=credentials('jenkins_api_client-login')
       }
       steps {
@@ -50,12 +58,8 @@ pipeline {
       }
     }
     stage('commit new traces to project') {
-      // when { environment name: 'GIT_CHANGED_FILES', value: '1' }
       steps {
-        sh 'git status'
-        sh 'git add build_traces'
-        sh "git commit -m 'add new puppet-agent-${env.BRANCH} traces'"
-        sh "git push origin ${env.PIPELINE_BRANCH}"
+        sh 'jenkins/git_commit.sh'
       }
     }
   }
