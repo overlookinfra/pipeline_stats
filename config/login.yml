@@ -1,0 +1,21 @@
+# This is an example login.yml for the ruby jenkins_api_client library:
+#   https://github.com/arangamani/jenkins_api_client
+#
+# Example login.yml file in that repo:
+#   https://github.com/arangamani/jenkins_api_client/blob/master/config/login.yml.example
+
+:server_url:   https://jenkins-url.net
+:server_port:  80
+
+# Had issues using :server_ip key, was getting timeouts connecting to Jenkins w/it
+# Project README wasn't very helpful for this, but the client code has a number of
+#   useful comments on things we could do.
+# Was an option to extend the timeout, but using the :server_url key fixed my connection issue
+# Also note that `config[:server_url]` is used in `exe/collector`'s pipeline output to
+#   make those URLs complete for printing & clicking to view the pipelines themselves
+#
+# jenkins_api_client:client.rb:
+#   https://github.com/arangamani/jenkins_api_client/blob/030af8d2a3ed1298191cf50cd0c6ccb8bee2e1eb/lib/jenkins_api_client/client.rb#L45-L114
+
+:username: your-username
+:password: your-password
