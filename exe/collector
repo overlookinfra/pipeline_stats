@@ -218,7 +218,10 @@ puts "For branch #{branch}"
 pipeline = "platform_puppet-agent_puppet-agent-promote-to-pe_daily-#{branch}"
 regex = /^#{Regexp.escape(pipeline)}/
 pipelines = client.job.list_all.select { |job| job =~ regex }
-puts "Pipelines: #{pipelines}"
+puts "Getting data from these pipelines:"
+pipelines.each do |name|
+  puts "- #{config[:server_url]}/job/#{name}"
+end
 pipelines.each do |name|
   total = 0
 
