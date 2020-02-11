@@ -30,6 +30,8 @@ pipeline {
   environment {
     GEM_SOURCE='https://artifactory.delivery.puppetlabs.net/artifactory/api/gems/rubygems/'
     RUBY_VERSION='2.5.1'
+    // used in dev mode for checking out, but also in git_commit.sh to know where to push
+    PIPELINE_STATS_BRANCH='dt_job_03'
     BRANCH='6.4.x'
   }
 
@@ -40,8 +42,8 @@ pipeline {
         //   the job from an SCM Pipeline to a Pipeline script. When that's the case, you'll
         //   need to have a manual checkout step in your Jenkinsfile
         //   TODO needs confirmation (does having a git project on the job mean we don't need this?)
-        // git branch: "dt_job_02",
-        //     url: 'git@github.com:kevpl/pipeline_stats.git'
+        git branch: "${env.PIPELINE_STATS_BRANCH}",
+            url: 'git@github.com:kevpl/pipeline_stats.git'
         sh bundleInstall(env.RUBY_VERSION)
       }
     }
