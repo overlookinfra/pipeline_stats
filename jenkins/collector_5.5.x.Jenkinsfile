@@ -30,18 +30,19 @@ pipeline {
   environment {
     GEM_SOURCE='https://artifactory.delivery.puppetlabs.net/artifactory/api/gems/rubygems/'
     RUBY_VERSION='2.5.1'
+    // also used in git_commit.sh to know where to push new build traces
+    PIPELINE_STATS_BRANCH='master'
     BRANCH='5.5.x'
   }
 
   stages {
     stage('bundle install') {
       steps {
-        // dev mode: to iterate on the job w/o creating commits, I find it better to switch
-        //   the job from an SCM Pipeline to a Pipeline script. When that's the case, you'll
-        //   need to have a manual checkout step in your Jenkinsfile
-        //   TODO needs confirmation (does having a git project on the job mean we don't need this?)
-        // git branch: "dt_job_02",
-        //     url: 'git@github.com:kevpl/pipeline_stats.git'
+        // typical git checkout step gets the commit at HEAD
+        //   of the branch. That won't work for us, as we want to
+        //   commit back to the branch. So we checkout manually:
+        git branch: "${env.PIPELINE_STATS_BRANCH}",
+            url: 'git@github.com:puppetlabs/pipeline_stats.git'
         sh bundleInstall(env.RUBY_VERSION)
       }
     }
